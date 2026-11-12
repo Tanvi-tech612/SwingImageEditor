@@ -16,6 +16,8 @@ public class MainFrame extends JFrame {
 
     private final CanvasPanel canvasPanel;
     private final EditorController controller;
+    private JButton undoButton;
+    private JButton redoButton;
 
     public MainFrame() {
 
@@ -38,18 +40,33 @@ public class MainFrame extends JFrame {
         JButton invertButton = new JButton("Invert");
         JButton brightnessButton = new JButton("Brightness");
         JButton rotateButton = new JButton("Rotate");
+        undoButton = new JButton("Undo");
+        redoButton = new JButton("Redo");
+        undoButton.setEnabled(false);
+        redoButton.setEnabled(false);
 
         toolbar.add(openButton);
         toolbar.add(grayscaleButton);
         toolbar.add(invertButton);
         toolbar.add(brightnessButton);
         toolbar.add(rotateButton);
+        toolbar.add(undoButton);
+        toolbar.add(redoButton);
 
         add(toolbar, BorderLayout.NORTH);
         add(canvasPanel, BorderLayout.CENTER);
         add(layersPanel, BorderLayout.EAST);
 
         openButton.addActionListener(e -> openImage());
+        undoButton.addActionListener(e -> {
+            controller.undo();
+            updateCanvas();
+        });
+
+        redoButton.addActionListener(e -> {
+            controller.redo();
+            updateCanvas();
+        });
 
         grayscaleButton.addActionListener(e ->
                 applyOperation(new GrayscaleOperation())
@@ -173,5 +190,8 @@ public class MainFrame extends JFrame {
         canvasPanel.setImage(
                 controller.getDocument().getImage()
         );
+
+        undoButton.setEnabled(controller.canUndo());
+        redoButton.setEnabled(controller.canRedo());
     }
 }
