@@ -3,6 +3,8 @@ package com.imageeditor.controller;
 
 import com.imageeditor.model.ImageDocument;
 import com.imageeditor.operations.ImageOperation;
+import com.imageeditor.command.CommandHistory;
+import com.imageeditor.command.ImageOperationCommand;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -12,9 +14,11 @@ import java.io.IOException;
 public class EditorController {
 
     private final ImageDocument document;
+    private final CommandHistory commandHistory;
 
     public EditorController() {
         document = new ImageDocument();
+        commandHistory = new CommandHistory();
     }
 
     public ImageDocument getDocument() {
@@ -30,6 +34,7 @@ public class EditorController {
         }
 
         document.setImage(image);
+        commandHistory.clear();
     }
 
     public void applyOperation(ImageOperation operation) {
@@ -38,10 +43,25 @@ public class EditorController {
             throw new IllegalStateException("Please open an image first.");
         }
 
-        BufferedImage currentImage = document.getImage();
+        ImageOperationCommand command =
+                new ImageOperationCommand(document, operation);
 
-        BufferedImage processedImage = operation.apply(currentImage);
+        commandHistory.executeCommand(command);
+    }
 
-        document.setImage(processedImage);
+    public void undo() {
+        commandHistory.undo();
+    }
+
+    public void redo() {
+        commandHistory.redo();
+    }
+
+    public boolean canUndo() {
+        return commandHistory.canUndo();
+    }
+
+    public boolean canRedo() {
+        return commandHistory.canRedo();
     }
 }
