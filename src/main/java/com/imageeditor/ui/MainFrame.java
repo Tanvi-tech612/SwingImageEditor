@@ -25,6 +25,8 @@ public class MainFrame extends JFrame {
 
     private final JLabel statusLabel;
     private final JLabel infoLabel;
+    private final JButton undoButton;
+    private final JButton redoButton;
     private String currentFileName;
 
     public MainFrame() {
@@ -77,6 +79,13 @@ public class MainFrame extends JFrame {
         toolbar.add(openButton);
         toolbar.add(saveButton);
 
+        undoButton = new JButton("Undo");
+        redoButton = new JButton("Redo");
+        undoButton.setEnabled(false);
+        redoButton.setEnabled(false);
+        styleButton(undoButton, false);
+        styleButton(redoButton, false);
+
         JPanel separator = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -93,6 +102,8 @@ public class MainFrame extends JFrame {
         toolbar.add(invertButton);
         toolbar.add(brightnessButton);
         toolbar.add(rotateButton);
+        toolbar.add(undoButton);
+        toolbar.add(redoButton);
 
         // Status bar
         JPanel statusBar = new JPanel(new BorderLayout());
@@ -122,6 +133,18 @@ public class MainFrame extends JFrame {
         openButton.addActionListener(e -> openImage());
 
         saveButton.addActionListener(e -> saveImage());
+
+        undoButton.addActionListener(e -> {
+            controller.undo();
+            updateCanvas();
+            updateUndoRedoButtons();
+        });
+
+        redoButton.addActionListener(e -> {
+            controller.redo();
+            updateCanvas();
+            updateUndoRedoButtons();
+        });
 
         grayscaleButton.addActionListener(e ->
                 applyOperation(new GrayscaleOperation(), "Grayscale")
@@ -411,11 +434,17 @@ public class MainFrame extends JFrame {
         BufferedImage img = controller.getDocument().getImage();
         canvasPanel.setImage(img);
         layersPanel.updateLayer(img, currentFileName);
+        updateUndoRedoButtons();
 
         if (img != null) {
             infoLabel.setText(img.getWidth() + " × " + img.getHeight() + " px");
         } else {
             infoLabel.setText("No image loaded");
         }
+    }
+
+    private void updateUndoRedoButtons() {
+        undoButton.setEnabled(controller.canUndo());
+        redoButton.setEnabled(controller.canRedo());
     }
 }
