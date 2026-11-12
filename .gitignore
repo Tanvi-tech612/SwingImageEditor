@@ -1,5 +1,27 @@
+
+# IntelliJ IDEA
 .idea/
 *.iml
+
+# Maven
 target/
-.DS_Store
+
+# Compiled Java files
+*.class
 out/
+
+# macOS
+.DS_Store
+
+# Generated test images
+grayscale.png
+inverted.png
+brighter.png
+rotated.png
+
+# Local test input
+test-image.jpg
+
+# Logs
+*.log
+g
