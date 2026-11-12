@@ -3,6 +3,8 @@ package com.imageeditor.controller;
 
 import com.imageeditor.model.ImageDocument;
 import com.imageeditor.operations.ImageOperation;
+import com.imageeditor.command.CommandHistory;
+import com.imageeditor.command.ImageOperationCommand;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -21,6 +23,7 @@ public class EditorController {
 
     public EditorController() {
         document = new ImageDocument();
+        commandHistory = new CommandHistory();
     }
 
     public ImageDocument getDocument() {
@@ -74,6 +77,7 @@ public class EditorController {
         }
         redoStack.clear();
         document.setImage(image);
+        commandHistory.clear();
     }
 
     public void applyOperation(ImageOperation operation) {

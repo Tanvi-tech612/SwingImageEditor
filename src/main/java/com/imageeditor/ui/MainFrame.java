@@ -22,6 +22,8 @@ public class MainFrame extends JFrame {
     private final CanvasPanel canvasPanel;
     private final LayersPanel layersPanel;
     private final EditorController controller;
+    private JButton undoButton;
+    private JButton redoButton;
 
     private final JLabel statusLabel;
     private final JLabel infoLabel;
@@ -61,6 +63,10 @@ public class MainFrame extends JFrame {
         JButton invertButton = new JButton("Invert");
         JButton brightnessButton = new JButton("Brightness");
         JButton rotateButton = new JButton("Rotate");
+        undoButton = new JButton("Undo");
+        redoButton = new JButton("Redo");
+        undoButton.setEnabled(false);
+        redoButton.setEnabled(false);
 
         openButton.setToolTipText("Open an image file from disk (PNG, JPG)");
         saveButton.setToolTipText("Save current edited image to disk");
@@ -131,6 +137,15 @@ public class MainFrame extends JFrame {
 
         // Action Listeners
         openButton.addActionListener(e -> openImage());
+        undoButton.addActionListener(e -> {
+            controller.undo();
+            updateCanvas();
+        });
+
+        redoButton.addActionListener(e -> {
+            controller.redo();
+            updateCanvas();
+        });
 
         saveButton.addActionListener(e -> saveImage());
 
