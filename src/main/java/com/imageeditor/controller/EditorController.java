@@ -1,6 +1,7 @@
-
 package com.imageeditor.controller;
 
+import com.imageeditor.command.CommandHistory;
+import com.imageeditor.command.ImageOperationCommand;
 import com.imageeditor.model.ImageDocument;
 import com.imageeditor.operations.ImageOperation;
 
@@ -10,55 +11,19 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.Deque;
 
 public class EditorController {
 
     private final ImageDocument document;
-    private final Deque<BufferedImage> undoStack = new ArrayDeque<>();
-    private final Deque<BufferedImage> redoStack = new ArrayDeque<>();
+    private final CommandHistory commandHistory;
 
     public EditorController() {
         document = new ImageDocument();
+        commandHistory = new CommandHistory();
     }
 
     public ImageDocument getDocument() {
         return document;
-    }
-
-    public boolean canUndo() {
-        return !undoStack.isEmpty();
-    }
-
-    public boolean canRedo() {
-        return !redoStack.isEmpty();
-    }
-
-    public void undo() {
-        if (!canUndo()) {
-            return;
-        }
-
-        BufferedImage current = document.getImage();
-        if (current != null) {
-            redoStack.push(copyImage(current));
-        }
-
-        document.setImage(undoStack.pop());
-    }
-
-    public void redo() {
-        if (!canRedo()) {
-            return;
-        }
-
-        BufferedImage current = document.getImage();
-        if (current != null) {
-            undoStack.push(copyImage(current));
-        }
-
-        document.setImage(redoStack.pop());
     }
 
     public void loadImage(File file) throws IOException {
@@ -69,11 +34,8 @@ public class EditorController {
             throw new IOException("Unsupported image format.");
         }
 
-        if (document.hasImage()) {
-            undoStack.push(copyImage(document.getImage()));
-        }
-        redoStack.clear();
         document.setImage(image);
+        commandHistory.clear();
     }
 
     public void applyOperation(ImageOperation operation) {
@@ -82,12 +44,26 @@ public class EditorController {
             throw new IllegalStateException("Please open an image first.");
         }
 
-        BufferedImage currentImage = document.getImage();
-        undoStack.push(copyImage(currentImage));
-        redoStack.clear();
+        ImageOperationCommand command =
+                new ImageOperationCommand(document, operation);
 
-        BufferedImage processedImage = operation.apply(currentImage);
-        document.setImage(processedImage);
+        commandHistory.executeCommand(command);
+    }
+
+    public void undo() {
+        commandHistory.undo();
+    }
+
+    public void redo() {
+        commandHistory.redo();
+    }
+
+    public boolean canUndo() {
+        return commandHistory.canUndo();
+    }
+
+    public boolean canRedo() {
+        return commandHistory.canRedo();
     }
 
     public void saveImage(File file, String format) throws IOException {
@@ -136,17 +112,5 @@ public class EditorController {
 
         String format = ext.equals("jpeg") ? "jpg" : ext;
         saveImage(file, format);
-    }
-
-    private BufferedImage copyImage(BufferedImage source) {
-        BufferedImage copy = new BufferedImage(
-                source.getWidth(),
-                source.getHeight(),
-                source.getType() == 0 ? BufferedImage.TYPE_INT_ARGB : source.getType()
-        );
-        Graphics2D g = copy.createGraphics();
-        g.drawImage(source, 0, 0, null);
-        g.dispose();
-        return copy;
     }
 }

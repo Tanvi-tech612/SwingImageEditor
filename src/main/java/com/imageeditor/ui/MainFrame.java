@@ -83,6 +83,8 @@ public class MainFrame extends JFrame {
         redoButton = new JButton("Redo");
         undoButton.setEnabled(false);
         redoButton.setEnabled(false);
+        undoButton.setToolTipText("Undo the last operation");
+        redoButton.setToolTipText("Redo the last undone operation");
         styleButton(undoButton, false);
         styleButton(redoButton, false);
 
@@ -137,13 +139,11 @@ public class MainFrame extends JFrame {
         undoButton.addActionListener(e -> {
             controller.undo();
             updateCanvas();
-            updateUndoRedoButtons();
         });
 
         redoButton.addActionListener(e -> {
             controller.redo();
             updateCanvas();
-            updateUndoRedoButtons();
         });
 
         grayscaleButton.addActionListener(e ->
