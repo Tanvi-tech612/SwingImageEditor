@@ -1,10 +1,16 @@
-
 package com.imageeditor.controller;
 
-import com.imageeditor.model.ImageDocument;
-import com.imageeditor.operations.ImageOperation;
+import com.imageeditor.command.AddLayerCommand;
+import com.imageeditor.command.ChangeOpacityCommand;
+import com.imageeditor.command.Command;
 import com.imageeditor.command.CommandHistory;
+import com.imageeditor.command.DeleteLayerCommand;
 import com.imageeditor.command.ImageOperationCommand;
+import com.imageeditor.command.ReorderLayerCommand;
+import com.imageeditor.command.ToggleVisibilityCommand;
+import com.imageeditor.model.ImageDocument;
+import com.imageeditor.model.Layer;
+import com.imageeditor.operations.ImageOperation;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -12,105 +18,215 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.ArrayList;
+import java.util.List;
 
 public class EditorController {
 
     private final ImageDocument document;
-    private final Deque<BufferedImage> undoStack = new ArrayDeque<>();
-    private final Deque<BufferedImage> redoStack = new ArrayDeque<>();
+    private final CommandHistory commandHistory;
+    private final List<Runnable> changeListeners = new ArrayList<>();
 
     public EditorController() {
-        document = new ImageDocument();
-        commandHistory = new CommandHistory();
+        this.document = new ImageDocument();
+        this.commandHistory = new CommandHistory();
     }
 
     public ImageDocument getDocument() {
         return document;
     }
 
+    public CommandHistory getCommandHistory() {
+        return commandHistory;
+    }
+
+    public void addChangeListener(Runnable listener) {
+        if (listener != null && !changeListeners.contains(listener)) {
+            changeListeners.add(listener);
+        }
+    }
+
+    public void removeChangeListener(Runnable listener) {
+        changeListeners.remove(listener);
+    }
+
+    public void notifyChange() {
+        for (Runnable listener : new ArrayList<>(changeListeners)) {
+            listener.run();
+        }
+    }
+
+    public void executeCommand(Command command) {
+        if (command == null) {
+            return;
+        }
+        commandHistory.executeCommand(command);
+        notifyChange();
+    }
+
     public boolean canUndo() {
-        return !undoStack.isEmpty();
+        return commandHistory.canUndo();
     }
 
     public boolean canRedo() {
-        return !redoStack.isEmpty();
+        return commandHistory.canRedo();
     }
 
     public void undo() {
         if (!canUndo()) {
             return;
         }
-
-        BufferedImage current = document.getImage();
-        if (current != null) {
-            redoStack.push(copyImage(current));
-        }
-
-        document.setImage(undoStack.pop());
+        commandHistory.undo();
+        notifyChange();
     }
 
     public void redo() {
         if (!canRedo()) {
             return;
         }
-
-        BufferedImage current = document.getImage();
-        if (current != null) {
-            undoStack.push(copyImage(current));
-        }
-
-        document.setImage(redoStack.pop());
+        commandHistory.redo();
+        notifyChange();
     }
 
     public void loadImage(File file) throws IOException {
-
         BufferedImage image = ImageIO.read(file);
 
         if (image == null) {
             throw new IOException("Unsupported image format.");
         }
 
-        if (document.hasImage()) {
-            undoStack.push(copyImage(document.getImage()));
-        }
-        redoStack.clear();
-        document.setImage(image);
+        document.clear();
+        String name = file.getName();
+        Layer bgLayer = new Layer(name, image);
+        document.addLayer(bgLayer);
         commandHistory.clear();
+        notifyChange();
+    }
+
+    public Layer addNewBlankLayer() {
+        int width = document.hasImage() ? document.getCanvasWidth() : 800;
+        int height = document.hasImage() ? document.getCanvasHeight() : 600;
+        BufferedImage blank = new BufferedImage(Math.max(1, width), Math.max(1, height), BufferedImage.TYPE_INT_ARGB);
+        Layer layer = new Layer(document.generateNextLayerName(), blank);
+        executeCommand(new AddLayerCommand(document, layer));
+        return layer;
+    }
+
+    public Layer addLayerFromImage(File file) throws IOException {
+        BufferedImage image = ImageIO.read(file);
+        if (image == null) {
+            throw new IOException("Unsupported image format.");
+        }
+        Layer newLayer = new Layer(file.getName(), image);
+        executeCommand(new AddLayerCommand(document, newLayer));
+        return newLayer;
+    }
+
+    public void addLayer(Layer layer) {
+        if (layer != null) {
+            executeCommand(new AddLayerCommand(document, layer));
+        }
+    }
+
+    public void deleteSelectedLayer() {
+        if (document.getLayerCount() <= 1) {
+            throw new IllegalStateException("Cannot delete the final remaining layer.");
+        }
+        Layer selected = document.getSelectedLayer();
+        if (selected != null) {
+            int index = document.indexOf(selected);
+            executeCommand(new DeleteLayerCommand(document, selected, index));
+        }
+    }
+
+    public void selectLayer(Layer layer) {
+        document.setSelectedLayer(layer);
+        notifyChange();
+    }
+
+    public void selectLayer(int index) {
+        document.setSelectedIndex(index);
+        notifyChange();
+    }
+
+    public void moveSelectedLayerUp() {
+        Layer selected = document.getSelectedLayer();
+        if (document.canMoveUp(selected)) {
+            int oldIndex = document.indexOf(selected);
+            int newIndex = oldIndex + 1;
+            executeCommand(new ReorderLayerCommand(document, oldIndex, newIndex));
+        }
+    }
+
+    public void moveSelectedLayerDown() {
+        Layer selected = document.getSelectedLayer();
+        if (document.canMoveDown(selected)) {
+            int oldIndex = document.indexOf(selected);
+            int newIndex = oldIndex - 1;
+            executeCommand(new ReorderLayerCommand(document, oldIndex, newIndex));
+        }
+    }
+
+    public void toggleLayerVisibility(Layer layer) {
+        if (layer != null) {
+            executeCommand(new ToggleVisibilityCommand(layer));
+        }
+    }
+
+    public void setLayerOpacity(Layer layer, float newOpacity, float previousOpacity) {
+        if (layer != null && Math.abs(newOpacity - previousOpacity) > 0.001f) {
+            layer.setOpacity(previousOpacity);
+            executeCommand(new ChangeOpacityCommand(layer, previousOpacity, newOpacity));
+        }
+    }
+
+    public void previewLayerOpacity(Layer layer, float opacity) {
+        if (layer != null) {
+            layer.setOpacity(opacity);
+            notifyChange();
+        }
     }
 
     public void applyOperation(ImageOperation operation) {
-
         if (!document.hasImage()) {
             throw new IllegalStateException("Please open an image first.");
         }
 
-        BufferedImage currentImage = document.getImage();
-        undoStack.push(copyImage(currentImage));
-        redoStack.clear();
+        Layer targetLayer = document.getSelectedLayer();
+        if (targetLayer == null && document.getLayerCount() > 0) {
+            targetLayer = document.getLayer(0);
+        }
+        if (targetLayer == null) {
+            throw new IllegalStateException("No active layer found to apply operation.");
+        }
 
-        BufferedImage processedImage = operation.apply(currentImage);
-        document.setImage(processedImage);
+        ImageOperationCommand command = new ImageOperationCommand(document, targetLayer, operation);
+        executeCommand(command);
     }
 
     public void saveImage(File file, String format) throws IOException {
-
         if (!document.hasImage()) {
             throw new IllegalStateException("Please open an image first.");
         }
 
-        BufferedImage currentImage = document.getImage();
-        BufferedImage imageToSave = currentImage;
+        BufferedImage composite = document.getCompositeImage();
+        if (composite == null) {
+            composite = document.getImage();
+        }
+        if (composite == null) {
+            throw new IllegalStateException("No image to save.");
+        }
+
+        BufferedImage imageToSave = composite;
 
         if ("jpg".equalsIgnoreCase(format) || "jpeg".equalsIgnoreCase(format)) {
             BufferedImage rgbImage = new BufferedImage(
-                    currentImage.getWidth(),
-                    currentImage.getHeight(),
+                    composite.getWidth(),
+                    composite.getHeight(),
                     BufferedImage.TYPE_INT_RGB
             );
             Graphics2D g = rgbImage.createGraphics();
-            g.drawImage(currentImage, 0, 0, Color.WHITE, null);
+            g.drawImage(composite, 0, 0, Color.WHITE, null);
             g.dispose();
             imageToSave = rgbImage;
             format = "jpg";
@@ -124,7 +240,6 @@ public class EditorController {
     }
 
     public void saveImage(File file) throws IOException {
-
         String name = file.getName();
         int dotIndex = name.lastIndexOf('.');
 
@@ -142,7 +257,8 @@ public class EditorController {
         saveImage(file, format);
     }
 
-    private BufferedImage copyImage(BufferedImage source) {
+    public BufferedImage copyImage(BufferedImage source) {
+        if (source == null) return null;
         BufferedImage copy = new BufferedImage(
                 source.getWidth(),
                 source.getHeight(),

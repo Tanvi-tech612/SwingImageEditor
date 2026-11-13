@@ -22,8 +22,6 @@ public class MainFrame extends JFrame {
     private final CanvasPanel canvasPanel;
     private final LayersPanel layersPanel;
     private final EditorController controller;
-    private JButton undoButton;
-    private JButton redoButton;
 
     private final JLabel statusLabel;
     private final JLabel infoLabel;
@@ -44,7 +42,12 @@ public class MainFrame extends JFrame {
         controller = new EditorController();
 
         canvasPanel = new CanvasPanel();
-        layersPanel = new LayersPanel();
+        canvasPanel.setDocument(controller.getDocument());
+
+        layersPanel = new LayersPanel(controller);
+
+        // Listen for document changes
+        controller.addChangeListener(this::updateCanvas);
 
         // Setup Menu Bar
         setupMenuBar();
@@ -74,6 +77,8 @@ public class MainFrame extends JFrame {
         invertButton.setToolTipText("Invert image colors");
         brightnessButton.setToolTipText("Adjust image brightness level (-255 to 255)");
         rotateButton.setToolTipText("Rotate image 90 degrees clockwise");
+        undoButton.setToolTipText("Undo last action (Ctrl+Z)");
+        redoButton.setToolTipText("Redo last undone action (Ctrl+Y)");
 
         styleButton(openButton, true);
         styleButton(saveButton, true);
@@ -81,16 +86,11 @@ public class MainFrame extends JFrame {
         styleButton(invertButton, false);
         styleButton(brightnessButton, false);
         styleButton(rotateButton, false);
+        styleButton(undoButton, false);
+        styleButton(redoButton, false);
 
         toolbar.add(openButton);
         toolbar.add(saveButton);
-
-        undoButton = new JButton("Undo");
-        redoButton = new JButton("Redo");
-        undoButton.setEnabled(false);
-        redoButton.setEnabled(false);
-        styleButton(undoButton, false);
-        styleButton(redoButton, false);
 
         JPanel separator = new JPanel() {
             @Override
@@ -137,29 +137,10 @@ public class MainFrame extends JFrame {
 
         // Action Listeners
         openButton.addActionListener(e -> openImage());
-        undoButton.addActionListener(e -> {
-            controller.undo();
-            updateCanvas();
-        });
-
-        redoButton.addActionListener(e -> {
-            controller.redo();
-            updateCanvas();
-        });
-
         saveButton.addActionListener(e -> saveImage());
 
-        undoButton.addActionListener(e -> {
-            controller.undo();
-            updateCanvas();
-            updateUndoRedoButtons();
-        });
-
-        redoButton.addActionListener(e -> {
-            controller.redo();
-            updateCanvas();
-            updateUndoRedoButtons();
-        });
+        undoButton.addActionListener(e -> controller.undo());
+        redoButton.addActionListener(e -> controller.redo());
 
         grayscaleButton.addActionListener(e ->
                 applyOperation(new GrayscaleOperation(), "Grayscale")
@@ -206,6 +187,19 @@ public class MainFrame extends JFrame {
         fileMenu.addSeparator();
         fileMenu.add(exitItem);
 
+        // Edit Menu
+        JMenu editMenu = new JMenu("Edit");
+        JMenuItem undoItem = new JMenuItem("Undo");
+        undoItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        undoItem.addActionListener(e -> controller.undo());
+
+        JMenuItem redoItem = new JMenuItem("Redo");
+        redoItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        redoItem.addActionListener(e -> controller.redo());
+
+        editMenu.add(undoItem);
+        editMenu.add(redoItem);
+
         // Filter / Operations Menu
         JMenu operationsMenu = new JMenu("Operations");
         JMenuItem grayItem = new JMenuItem("Grayscale");
@@ -226,6 +220,7 @@ public class MainFrame extends JFrame {
         operationsMenu.add(rotateItem);
 
         menuBar.add(fileMenu);
+        menuBar.add(editMenu);
         menuBar.add(operationsMenu);
         setJMenuBar(menuBar);
     }
@@ -445,14 +440,14 @@ public class MainFrame extends JFrame {
     }
 
     private void updateCanvas() {
-
-        BufferedImage img = controller.getDocument().getImage();
-        canvasPanel.setImage(img);
-        layersPanel.updateLayer(img, currentFileName);
+        BufferedImage composite = controller.getDocument().getCompositeImage();
+        canvasPanel.setImage(composite);
+        layersPanel.updateLayers();
         updateUndoRedoButtons();
 
-        if (img != null) {
-            infoLabel.setText(img.getWidth() + " × " + img.getHeight() + " px");
+        if (composite != null) {
+            int layerCount = controller.getDocument().getLayerCount();
+            infoLabel.setText(composite.getWidth() + " × " + composite.getHeight() + " px (" + layerCount + " layer" + (layerCount == 1 ? "" : "s") + ")");
         } else {
             infoLabel.setText("No image loaded");
         }
