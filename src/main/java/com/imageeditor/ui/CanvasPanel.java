@@ -1,5 +1,7 @@
 package com.imageeditor.ui;
 
+import com.imageeditor.model.ImageDocument;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -7,6 +9,7 @@ import java.awt.image.BufferedImage;
 public class CanvasPanel extends JPanel {
 
     private BufferedImage image;
+    private ImageDocument document;
 
     public CanvasPanel() {
         setBackground(new Color(24, 25, 27));
@@ -17,7 +20,16 @@ public class CanvasPanel extends JPanel {
         repaint();
     }
 
+    public void setDocument(ImageDocument document) {
+        this.document = document;
+        repaint();
+    }
+
     public BufferedImage getImage() {
+        if (document != null) {
+            BufferedImage comp = document.getCompositeImage();
+            if (comp != null) return comp;
+        }
         return image;
     }
 
@@ -29,7 +41,9 @@ public class CanvasPanel extends JPanel {
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        if (image == null) {
+        BufferedImage displayImage = getImage();
+
+        if (displayImage == null) {
             drawEmptyState(g2d);
             g2d.dispose();
             return;
@@ -42,12 +56,12 @@ public class CanvasPanel extends JPanel {
         int availWidth = Math.max(1, getWidth() - padding * 2);
         int availHeight = Math.max(1, getHeight() - padding * 2);
 
-        double scaleX = (double) availWidth / image.getWidth();
-        double scaleY = (double) availHeight / image.getHeight();
+        double scaleX = (double) availWidth / displayImage.getWidth();
+        double scaleY = (double) availHeight / displayImage.getHeight();
         double scale = Math.min(scaleX, scaleY);
 
-        int newWidth = Math.max(1, (int) (image.getWidth() * scale));
-        int newHeight = Math.max(1, (int) (image.getHeight() * scale));
+        int newWidth = Math.max(1, (int) (displayImage.getWidth() * scale));
+        int newHeight = Math.max(1, (int) (displayImage.getHeight() * scale));
 
         int x = (getWidth() - newWidth) / 2;
         int y = (getHeight() - newHeight) / 2;
@@ -56,8 +70,8 @@ public class CanvasPanel extends JPanel {
         g2d.setColor(new Color(0, 0, 0, 80));
         g2d.fillRoundRect(x + 3, y + 4, newWidth, newHeight, 4, 4);
 
-        // Draw image
-        g2d.drawImage(image, x, y, newWidth, newHeight, this);
+        // Draw composite image
+        g2d.drawImage(displayImage, x, y, newWidth, newHeight, this);
 
         // Subtle outline border
         g2d.setColor(new Color(255, 255, 255, 35));
