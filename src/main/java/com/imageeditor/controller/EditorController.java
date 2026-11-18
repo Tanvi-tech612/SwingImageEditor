@@ -15,7 +15,12 @@ import java.io.IOException;
 public class EditorController {
 
     private final ImageDocument document;
+<<<<<<<<< Temporary merge branch 1
     private final CommandHistory commandHistory;
+=========
+    private final Deque<BufferedImage> undoStack = new ArrayDeque<>();
+    private final Deque<BufferedImage> redoStack = new ArrayDeque<>();
+>>>>>>>>> Temporary merge branch 2
 
     public EditorController() {
         document = new ImageDocument();
@@ -44,6 +49,7 @@ public class EditorController {
             throw new IllegalStateException("Please open an image first.");
         }
 
+<<<<<<<<< Temporary merge branch 1
         ImageOperationCommand command =
                 new ImageOperationCommand(document, operation);
 
@@ -64,6 +70,14 @@ public class EditorController {
 
     public boolean canRedo() {
         return commandHistory.canRedo();
+=========
+        BufferedImage currentImage = document.getImage();
+        undoStack.push(copyImage(currentImage));
+        redoStack.clear();
+
+        BufferedImage processedImage = operation.apply(currentImage);
+        document.setImage(processedImage);
+>>>>>>>>> Temporary merge branch 2
     }
 
     public void saveImage(File file, String format) throws IOException {
