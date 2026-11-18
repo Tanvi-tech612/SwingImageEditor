@@ -44,6 +44,15 @@ public class CropOperation implements ImageOperation {
      * than the document canvas or does not intersect the crop rectangle.
      */
     public BufferedImage applyToLayer(BufferedImage image) {
+        return applyToLayer(image, 0, 0);
+    }
+
+    /**
+     * Crops a positioned layer image using document-space coordinates.
+     * Accounts for the layer's (layerX, layerY) position on the canvas and
+     * produces an ARGB image matching cropArea's exact width and height.
+     */
+    public BufferedImage applyToLayer(BufferedImage image, int layerX, int layerY) {
         if (image == null) {
             return null;
         }
@@ -54,16 +63,21 @@ public class CropOperation implements ImageOperation {
                 BufferedImage.TYPE_INT_ARGB
         );
 
-        int srcX1 = Math.max(0, cropArea.x);
-        int srcY1 = Math.max(0, cropArea.y);
-        int srcX2 = Math.min(image.getWidth(), cropArea.x + cropArea.width);
-        int srcY2 = Math.min(image.getHeight(), cropArea.y + cropArea.height);
+        int docX1 = Math.max(layerX, cropArea.x);
+        int docY1 = Math.max(layerY, cropArea.y);
+        int docX2 = Math.min(layerX + image.getWidth(), cropArea.x + cropArea.width);
+        int docY2 = Math.min(layerY + image.getHeight(), cropArea.y + cropArea.height);
 
-        if (srcX2 > srcX1 && srcY2 > srcY1) {
-            int dstX1 = srcX1 - cropArea.x;
-            int dstY1 = srcY1 - cropArea.y;
-            int dstX2 = srcX2 - cropArea.x;
-            int dstY2 = srcY2 - cropArea.y;
+        if (docX2 > docX1 && docY2 > docY1) {
+            int srcX1 = docX1 - layerX;
+            int srcY1 = docY1 - layerY;
+            int srcX2 = docX2 - layerX;
+            int srcY2 = docY2 - layerY;
+
+            int dstX1 = docX1 - cropArea.x;
+            int dstY1 = docY1 - cropArea.y;
+            int dstX2 = docX2 - cropArea.x;
+            int dstY2 = docY2 - cropArea.y;
 
             Graphics2D g2d = cropped.createGraphics();
             try {
