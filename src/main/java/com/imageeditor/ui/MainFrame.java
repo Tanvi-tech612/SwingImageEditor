@@ -1,6 +1,7 @@
 package com.imageeditor.ui;
 
 import com.imageeditor.controller.EditorController;
+import com.imageeditor.model.Layer;
 import com.imageeditor.operations.BrightnessOperation;
 import com.imageeditor.operations.GrayscaleOperation;
 import com.imageeditor.operations.InvertOperation;
@@ -35,7 +36,7 @@ public class MainFrame extends JFrame {
     public MainFrame() {
 
         setTitle("Swing Image Editor");
-        setSize(1140, 720);
+        setSize(1240, 720);
         setMinimumSize(new Dimension(850, 550));
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -45,8 +46,10 @@ public class MainFrame extends JFrame {
         controller = new EditorController();
 
         canvasPanel = new CanvasPanel();
+        canvasPanel.setController(controller);
         canvasPanel.setDocument(controller.getDocument());
         canvasPanel.setCropSelectionListener(this::onCropSelectionChanged);
+        canvasPanel.setLayerMoveStatusListener(this::onLayerMoveStatusChanged);
 
         layersPanel = new LayersPanel(controller);
 
@@ -70,6 +73,7 @@ public class MainFrame extends JFrame {
         JButton invertButton = new JButton("Invert");
         JButton brightnessButton = new JButton("Brightness");
         JButton rotateButton = new JButton("Rotate");
+        JButton resizeLayerButton = new JButton("Resize Layer");
         cropButton = new JButton("Crop");
         applyCropButton = new JButton("Apply Crop");
         cancelCropButton = new JButton("Cancel Crop");
@@ -86,6 +90,7 @@ public class MainFrame extends JFrame {
         invertButton.setToolTipText("Invert image colors");
         brightnessButton.setToolTipText("Adjust image brightness level (-255 to 255)");
         rotateButton.setToolTipText("Rotate image 90 degrees clockwise");
+        resizeLayerButton.setToolTipText("Resize the currently selected layer by width and height");
         cropButton.setToolTipText("Select a rectangular region to crop the document");
         applyCropButton.setToolTipText("Apply the current crop selection to all layers");
         cancelCropButton.setToolTipText("Cancel crop selection mode without modifying the image");
@@ -98,6 +103,7 @@ public class MainFrame extends JFrame {
         styleButton(invertButton, false);
         styleButton(brightnessButton, false);
         styleButton(rotateButton, false);
+        styleButton(resizeLayerButton, false);
         styleButton(cropButton, false);
         styleButton(applyCropButton, false);
         styleButton(cancelCropButton, false);
@@ -112,6 +118,7 @@ public class MainFrame extends JFrame {
         toolbar.add(invertButton);
         toolbar.add(brightnessButton);
         toolbar.add(rotateButton);
+        toolbar.add(resizeLayerButton);
         toolbar.add(createToolbarSeparator());
 
         toolbar.add(cropButton);
@@ -168,6 +175,8 @@ public class MainFrame extends JFrame {
         rotateButton.addActionListener(e ->
                 applyOperation(new RotateOperation(), "Rotate")
         );
+
+        resizeLayerButton.addActionListener(e -> resizeSelectedLayer());
 
         cropButton.addActionListener(e -> enterCropMode());
         applyCropButton.addActionListener(e -> applyCrop());
@@ -243,6 +252,9 @@ public class MainFrame extends JFrame {
         JMenuItem rotateItem = new JMenuItem("Rotate 90° Clockwise");
         rotateItem.addActionListener(e -> applyOperation(new RotateOperation(), "Rotate"));
 
+        JMenuItem resizeLayerItem = new JMenuItem("Resize Layer...");
+        resizeLayerItem.addActionListener(e -> resizeSelectedLayer());
+
         JMenuItem cropItem = new JMenuItem("Crop");
         cropItem.addActionListener(e -> enterCropMode());
 
@@ -250,6 +262,7 @@ public class MainFrame extends JFrame {
         operationsMenu.add(invertItem);
         operationsMenu.add(brightItem);
         operationsMenu.add(rotateItem);
+        operationsMenu.add(resizeLayerItem);
         operationsMenu.addSeparator();
         operationsMenu.add(cropItem);
 
@@ -429,6 +442,60 @@ public class MainFrame extends JFrame {
         }
     }
 
+    private void resizeSelectedLayer() {
+        Layer selectedLayer = controller.getDocument().getSelectedLayer();
+        if (selectedLayer == null) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please open an image and select a layer first.",
+                    "No Layer Selected",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        if (selectedLayer.getImage() == null || selectedLayer.getWidth() <= 0 || selectedLayer.getHeight() <= 0) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "The selected layer has no valid image to resize.",
+                    "Invalid Layer",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        if (canvasPanel.isCropMode()) {
+            exitCropMode(false);
+        }
+
+        ResizeLayerDialog dialog = new ResizeLayerDialog(
+                this,
+                selectedLayer.getName(),
+                selectedLayer.getWidth(),
+                selectedLayer.getHeight()
+        );
+        dialog.setVisible(true);
+
+        if (!dialog.isConfirmed()) {
+            return;
+        }
+
+        int newWidth = dialog.getSelectedWidth();
+        int newHeight = dialog.getSelectedHeight();
+
+        try {
+            controller.resizeSelectedLayer(newWidth, newHeight);
+            statusLabel.setText("Resized layer \"" + selectedLayer.getName() + "\" to " + newWidth + " × " + newHeight + " px");
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    ex.getMessage(),
+                    "Resize Layer Error",
+                    JOptionPane.WARNING_MESSAGE
+            );
+        }
+    }
+
     private void enterCropMode() {
         if (!controller.getDocument().hasImage()) {
             JOptionPane.showMessageDialog(
@@ -508,6 +575,12 @@ public class MainFrame extends JFrame {
                     + " px at (" + selection.x + ", " + selection.y + ") — click Apply Crop or Cancel Crop");
         } else {
             statusLabel.setText("Crop mode: click and drag on the image to select an area");
+        }
+    }
+
+    private void onLayerMoveStatusChanged(String message) {
+        if (message != null && !message.isEmpty()) {
+            statusLabel.setText(message);
         }
     }
 

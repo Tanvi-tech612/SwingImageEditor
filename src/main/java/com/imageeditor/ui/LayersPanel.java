@@ -354,6 +354,9 @@ public class LayersPanel extends JPanel {
         sizeLabel.setFont(new Font("SansSerif", Font.PLAIN, 11));
         sizeLabel.setForeground(new Color(150, 153, 162));
 
+        card.setToolTipText(layer.getName() + " — " + layer.getWidth() + " × " + layer.getHeight()
+                + " px at (" + layer.getX() + ", " + layer.getY() + ")");
+
         infoPanel.add(nameLabel);
         infoPanel.add(Box.createVerticalStrut(2));
         infoPanel.add(sizeLabel);

@@ -4,6 +4,7 @@ import com.imageeditor.model.ImageDocument;
 import com.imageeditor.model.Layer;
 import com.imageeditor.operations.CropOperation;
 
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.util.LinkedHashMap;
@@ -14,6 +15,7 @@ public class CropDocumentCommand implements Command {
     private final ImageDocument document;
     private final Rectangle cropArea;
     private final Map<Layer, BufferedImage> originalImages = new LinkedHashMap<>();
+    private final Map<Layer, Point> originalPositions = new LinkedHashMap<>();
     private final Map<Layer, BufferedImage> croppedImages = new LinkedHashMap<>();
     private boolean initialized = false;
 
@@ -54,14 +56,19 @@ public class CropDocumentCommand implements Command {
             for (Layer layer : document.getLayers()) {
                 BufferedImage original = layer.getImage();
                 originalImages.put(layer, original);
-                BufferedImage cropped = (original != null) ? cropOperation.applyToLayer(original) : null;
+                originalPositions.put(layer, layer.getPosition());
+                BufferedImage cropped = (original != null)
+                        ? cropOperation.applyToLayer(original, layer.getX(), layer.getY())
+                        : null;
                 croppedImages.put(layer, cropped);
             }
             initialized = true;
         }
 
         for (Map.Entry<Layer, BufferedImage> entry : croppedImages.entrySet()) {
-            entry.getKey().setImage(entry.getValue());
+            Layer layer = entry.getKey();
+            layer.setImage(entry.getValue());
+            layer.setPosition(0, 0);
         }
     }
 
@@ -72,7 +79,12 @@ public class CropDocumentCommand implements Command {
         }
 
         for (Map.Entry<Layer, BufferedImage> entry : originalImages.entrySet()) {
-            entry.getKey().setImage(entry.getValue());
+            Layer layer = entry.getKey();
+            layer.setImage(entry.getValue());
+            Point originalPos = originalPositions.get(layer);
+            if (originalPos != null) {
+                layer.setPosition(originalPos.x, originalPos.y);
+            }
         }
     }
 

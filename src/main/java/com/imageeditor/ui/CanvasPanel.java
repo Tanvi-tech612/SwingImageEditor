@@ -1,6 +1,8 @@
 package com.imageeditor.ui;
 
+import com.imageeditor.controller.EditorController;
 import com.imageeditor.model.ImageDocument;
+import com.imageeditor.model.Layer;
 
 import javax.swing.*;
 import java.awt.*;
@@ -15,15 +17,26 @@ public class CanvasPanel extends JPanel {
 
     private BufferedImage image;
     private ImageDocument document;
+    private EditorController controller;
 
+    // Crop selection state
     private boolean cropMode = false;
-    private boolean dragging = false;
-    private Point dragStartScreen = null;
-    private Point dragCurrentScreen = null;
+    private boolean cropDragging = false;
+    private Point cropDragStartScreen = null;
+    private Point cropDragCurrentScreen = null;
     private Rectangle selectedImageArea = null;
     private int lastImageWidth = -1;
     private int lastImageHeight = -1;
     private Consumer<Rectangle> cropSelectionListener;
+
+    // Layer drag-and-move state
+    private boolean layerDragging = false;
+    private Layer draggingLayer = null;
+    private Point layerDragStartScreen = null;
+    private int layerDragOriginalX = 0;
+    private int layerDragOriginalY = 0;
+    private double layerDragScale = 1.0;
+    private Consumer<String> layerMoveStatusListener;
 
     static final class DisplayBounds {
         final int x;
@@ -47,88 +60,264 @@ public class CanvasPanel extends JPanel {
 
     public CanvasPanel() {
         setBackground(new Color(24, 25, 27));
-        setupCropMouseListeners();
+        setupMouseListeners();
     }
 
-    private void setupCropMouseListeners() {
+    private void setupMouseListeners() {
         MouseAdapter mouseHandler = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (!cropMode) {
-                    return;
-                }
                 if (e.getButton() != MouseEvent.BUTTON1 && !SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
-                BufferedImage displayImage = getImage();
-                if (displayImage == null) {
-                    return;
+                if (cropMode) {
+                    handleCropMousePressed(e);
+                } else {
+                    handleLayerMousePressed(e);
                 }
-                DisplayBounds bounds = calculateDisplayBounds(displayImage);
-                if (bounds == null) {
-                    return;
-                }
-
-                Point clamped = clampToDisplayBounds(e.getPoint(), bounds);
-                dragging = true;
-                dragStartScreen = clamped;
-                dragCurrentScreen = clamped;
-                selectedImageArea = null;
-                notifyCropSelectionChanged();
-                repaint();
             }
 
             @Override
             public void mouseDragged(MouseEvent e) {
-                if (!cropMode || !dragging || dragStartScreen == null) {
-                    return;
+                if (cropMode) {
+                    handleCropMouseDragged(e);
+                } else if (layerDragging) {
+                    handleLayerMouseDragged(e);
                 }
-                BufferedImage displayImage = getImage();
-                if (displayImage == null) {
-                    clearCropSelection();
-                    return;
-                }
-                DisplayBounds bounds = calculateDisplayBounds(displayImage);
-                if (bounds == null) {
-                    return;
-                }
-
-                dragCurrentScreen = clampToDisplayBounds(e.getPoint(), bounds);
-                selectedImageArea = convertScreenRectToImageRect(dragStartScreen, dragCurrentScreen, bounds);
-                notifyCropSelectionChanged();
-                repaint();
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (!cropMode || !dragging || dragStartScreen == null) {
-                    return;
+                if (cropMode) {
+                    handleCropMouseReleased(e);
+                } else if (layerDragging) {
+                    handleLayerMouseReleased(e);
                 }
-                BufferedImage displayImage = getImage();
-                if (displayImage == null) {
-                    clearCropSelection();
-                    return;
-                }
-                DisplayBounds bounds = calculateDisplayBounds(displayImage);
-                if (bounds == null) {
-                    dragging = false;
-                    return;
-                }
+            }
 
-                dragCurrentScreen = clampToDisplayBounds(e.getPoint(), bounds);
-                dragging = false;
-                selectedImageArea = convertScreenRectToImageRect(dragStartScreen, dragCurrentScreen, bounds);
-                if (selectedImageArea == null) {
-                    dragStartScreen = null;
-                    dragCurrentScreen = null;
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                if (!cropMode && !layerDragging) {
+                    updateHoverCursor(e.getPoint());
                 }
-                notifyCropSelectionChanged();
-                repaint();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (!cropMode && !layerDragging) {
+                    setCursor(Cursor.getDefaultCursor());
+                }
             }
         };
 
         addMouseListener(mouseHandler);
         addMouseMotionListener(mouseHandler);
+    }
+
+    // --- Crop mouse handlers ---
+
+    private void handleCropMousePressed(MouseEvent e) {
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        if (bounds == null) {
+            return;
+        }
+        Point clamped = clampToDisplayBounds(e.getPoint(), bounds);
+        cropDragging = true;
+        cropDragStartScreen = clamped;
+        cropDragCurrentScreen = clamped;
+        selectedImageArea = null;
+        notifyCropSelectionChanged();
+        repaint();
+    }
+
+    private void handleCropMouseDragged(MouseEvent e) {
+        if (!cropDragging || cropDragStartScreen == null) {
+            return;
+        }
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        if (bounds == null) {
+            clearCropSelection();
+            return;
+        }
+        cropDragCurrentScreen = clampToDisplayBounds(e.getPoint(), bounds);
+        selectedImageArea = convertScreenRectToImageRect(cropDragStartScreen, cropDragCurrentScreen, bounds);
+        notifyCropSelectionChanged();
+        repaint();
+    }
+
+    private void handleCropMouseReleased(MouseEvent e) {
+        if (!cropDragging || cropDragStartScreen == null) {
+            return;
+        }
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        if (bounds == null) {
+            clearCropSelection();
+            return;
+        }
+        cropDragCurrentScreen = clampToDisplayBounds(e.getPoint(), bounds);
+        cropDragging = false;
+        selectedImageArea = convertScreenRectToImageRect(cropDragStartScreen, cropDragCurrentScreen, bounds);
+        if (selectedImageArea == null) {
+            cropDragStartScreen = null;
+            cropDragCurrentScreen = null;
+        }
+        notifyCropSelectionChanged();
+        repaint();
+    }
+
+    // --- Layer drag-and-move mouse handlers ---
+
+    private void handleLayerMousePressed(MouseEvent e) {
+        if (document == null) {
+            return;
+        }
+        Layer selected = document.getSelectedLayer();
+        if (selected == null || !selected.isVisible() || selected.getImage() == null) {
+            return;
+        }
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        if (bounds == null || bounds.scale <= 0) {
+            return;
+        }
+
+        double docX = (e.getX() - bounds.x) / bounds.scale;
+        double docY = (e.getY() - bounds.y) / bounds.scale;
+        if (!selected.containsPoint(docX, docY)) {
+            return;
+        }
+
+        layerDragging = true;
+        draggingLayer = selected;
+        layerDragStartScreen = e.getPoint();
+        layerDragOriginalX = selected.getX();
+        layerDragOriginalY = selected.getY();
+        layerDragScale = bounds.scale;
+        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+        repaint();
+    }
+
+    private void handleLayerMouseDragged(MouseEvent e) {
+        if (!layerDragging || draggingLayer == null || layerDragStartScreen == null) {
+            return;
+        }
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        double scale = (bounds != null && bounds.scale > 0) ? bounds.scale : layerDragScale;
+
+        int deltaDocX = (int) Math.round((e.getX() - layerDragStartScreen.x) / scale);
+        int deltaDocY = (int) Math.round((e.getY() - layerDragStartScreen.y) / scale);
+        int newX = layerDragOriginalX + deltaDocX;
+        int newY = layerDragOriginalY + deltaDocY;
+
+        draggingLayer.setPosition(newX, newY);
+        notifyLayerMoveStatus("Moving \"" + draggingLayer.getName() + "\" to (" + newX + ", " + newY + ")");
+        repaint();
+    }
+
+    private void handleLayerMouseReleased(MouseEvent e) {
+        if (!layerDragging || draggingLayer == null || layerDragStartScreen == null) {
+            cancelActiveLayerDrag(false);
+            return;
+        }
+
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        double scale = (bounds != null && bounds.scale > 0) ? bounds.scale : layerDragScale;
+
+        int deltaDocX = (int) Math.round((e.getX() - layerDragStartScreen.x) / scale);
+        int deltaDocY = (int) Math.round((e.getY() - layerDragStartScreen.y) / scale);
+        int finalX = layerDragOriginalX + deltaDocX;
+        int finalY = layerDragOriginalY + deltaDocY;
+
+        Layer movedLayer = draggingLayer;
+        int origX = layerDragOriginalX;
+        int origY = layerDragOriginalY;
+
+        layerDragging = false;
+        draggingLayer = null;
+        layerDragStartScreen = null;
+
+        if (finalX != origX || finalY != origY) {
+            if (controller != null) {
+                controller.moveLayerPosition(movedLayer, origX, origY, finalX, finalY);
+            } else {
+                movedLayer.setPosition(finalX, finalY);
+                repaint();
+            }
+            notifyLayerMoveStatus("Moved layer \"" + movedLayer.getName() + "\" to (" + finalX + ", " + finalY + ")");
+        } else {
+            repaint();
+        }
+
+        updateHoverCursor(e.getPoint());
+    }
+
+    private void cancelActiveLayerDrag(boolean restoreOriginalPosition) {
+        if (layerDragging && draggingLayer != null && restoreOriginalPosition) {
+            draggingLayer.setPosition(layerDragOriginalX, layerDragOriginalY);
+        }
+        layerDragging = false;
+        draggingLayer = null;
+        layerDragStartScreen = null;
+    }
+
+    private void updateHoverCursor(Point screenPoint) {
+        if (cropMode) {
+            setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+            return;
+        }
+        if (isPointOverSelectedLayer(screenPoint)) {
+            setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+        } else {
+            setCursor(Cursor.getDefaultCursor());
+        }
+    }
+
+    public boolean isPointOverSelectedLayer(Point screenPoint) {
+        if (document == null || screenPoint == null) {
+            return false;
+        }
+        Layer selected = document.getSelectedLayer();
+        if (selected == null || !selected.isVisible() || selected.getImage() == null) {
+            return false;
+        }
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        if (bounds == null || bounds.scale <= 0) {
+            return false;
+        }
+        double docX = (screenPoint.x - bounds.x) / bounds.scale;
+        double docY = (screenPoint.y - bounds.y) / bounds.scale;
+        return selected.containsPoint(docX, docY);
+    }
+
+    public Point screenToDocumentCoordinates(Point screenPoint) {
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        if (bounds == null || screenPoint == null || bounds.scale <= 0) {
+            return null;
+        }
+        int docX = (int) Math.round((screenPoint.x - bounds.x) / bounds.scale);
+        int docY = (int) Math.round((screenPoint.y - bounds.y) / bounds.scale);
+        return new Point(docX, docY);
+    }
+
+    public boolean isLayerDragging() {
+        return layerDragging;
+    }
+
+    public void setController(EditorController controller) {
+        this.controller = controller;
+        if (controller != null) {
+            this.document = controller.getDocument();
+        }
+        repaint();
+    }
+
+    public void setLayerMoveStatusListener(Consumer<String> listener) {
+        this.layerMoveStatusListener = listener;
+    }
+
+    private void notifyLayerMoveStatus(String message) {
+        if (layerMoveStatusListener != null) {
+            layerMoveStatusListener.accept(message);
+        }
     }
 
     public void setImage(BufferedImage image) {
@@ -159,6 +348,9 @@ public class CanvasPanel extends JPanel {
     }
 
     public void setCropMode(boolean enabled) {
+        if (enabled && layerDragging) {
+            cancelActiveLayerDrag(true);
+        }
         this.cropMode = enabled;
         setCursor(enabled
                 ? Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR)
@@ -177,9 +369,9 @@ public class CanvasPanel extends JPanel {
     }
 
     private void clearCropSelectionInternal(boolean notify) {
-        dragging = false;
-        dragStartScreen = null;
-        dragCurrentScreen = null;
+        cropDragging = false;
+        cropDragStartScreen = null;
+        cropDragCurrentScreen = null;
         selectedImageArea = null;
         if (notify) {
             notifyCropSelectionChanged();
@@ -204,13 +396,13 @@ public class CanvasPanel extends JPanel {
         if (!cropMode || selectedImageArea == null) {
             return null;
         }
-        BufferedImage displayImage = getImage();
-        if (displayImage == null || displayImage.getWidth() <= 0 || displayImage.getHeight() <= 0) {
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
+        if (bounds == null || bounds.imageWidth <= 0 || bounds.imageHeight <= 0) {
             return null;
         }
 
-        int imgW = displayImage.getWidth();
-        int imgH = displayImage.getHeight();
+        int imgW = bounds.imageWidth;
+        int imgH = bounds.imageHeight;
 
         int x1 = Math.max(0, Math.min(imgW, selectedImageArea.x));
         int y1 = Math.max(0, Math.min(imgH, selectedImageArea.y));
@@ -226,7 +418,7 @@ public class CanvasPanel extends JPanel {
     }
 
     public Rectangle getDisplayedImageBounds() {
-        DisplayBounds bounds = calculateDisplayBounds(getImage());
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
         if (bounds == null) {
             return null;
         }
@@ -234,29 +426,50 @@ public class CanvasPanel extends JPanel {
     }
 
     public double getCurrentDisplayScale() {
-        DisplayBounds bounds = calculateDisplayBounds(getImage());
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
         return bounds != null ? bounds.scale : 1.0;
     }
 
+    DisplayBounds calculateCurrentDisplayBounds() {
+        if (document != null && document.hasImage()) {
+            int canvasW = document.getCanvasWidth();
+            int canvasH = document.getCanvasHeight();
+            if (canvasW > 0 && canvasH > 0) {
+                return calculateDisplayBounds(canvasW, canvasH);
+            }
+        }
+        if (image != null && image.getWidth() > 0 && image.getHeight() > 0) {
+            return calculateDisplayBounds(image.getWidth(), image.getHeight());
+        }
+        return null;
+    }
+
     DisplayBounds calculateDisplayBounds(BufferedImage displayImage) {
-        if (displayImage == null || displayImage.getWidth() <= 0 || displayImage.getHeight() <= 0) {
+        if (displayImage == null) {
+            return null;
+        }
+        return calculateDisplayBounds(displayImage.getWidth(), displayImage.getHeight());
+    }
+
+    DisplayBounds calculateDisplayBounds(int contentWidth, int contentHeight) {
+        if (contentWidth <= 0 || contentHeight <= 0) {
             return null;
         }
 
         int availWidth = Math.max(1, getWidth() - PADDING * 2);
         int availHeight = Math.max(1, getHeight() - PADDING * 2);
 
-        double scaleX = (double) availWidth / displayImage.getWidth();
-        double scaleY = (double) availHeight / displayImage.getHeight();
+        double scaleX = (double) availWidth / contentWidth;
+        double scaleY = (double) availHeight / contentHeight;
         double scale = Math.min(scaleX, scaleY);
 
-        int newWidth = Math.max(1, (int) (displayImage.getWidth() * scale));
-        int newHeight = Math.max(1, (int) (displayImage.getHeight() * scale));
+        int newWidth = Math.max(1, (int) (contentWidth * scale));
+        int newHeight = Math.max(1, (int) (contentHeight * scale));
 
         int x = (getWidth() - newWidth) / 2;
         int y = (getHeight() - newHeight) / 2;
 
-        return new DisplayBounds(x, y, newWidth, newHeight, scale, displayImage.getWidth(), displayImage.getHeight());
+        return new DisplayBounds(x, y, newWidth, newHeight, scale, contentWidth, contentHeight);
     }
 
     private Point clampToDisplayBounds(Point p, DisplayBounds bounds) {
@@ -306,11 +519,11 @@ public class CanvasPanel extends JPanel {
         if (bounds == null) {
             return null;
         }
-        if (dragging && dragStartScreen != null && dragCurrentScreen != null) {
-            int sx1 = Math.max(bounds.x, Math.min(bounds.x + bounds.width, Math.min(dragStartScreen.x, dragCurrentScreen.x)));
-            int sy1 = Math.max(bounds.y, Math.min(bounds.y + bounds.height, Math.min(dragStartScreen.y, dragCurrentScreen.y)));
-            int sx2 = Math.max(bounds.x, Math.min(bounds.x + bounds.width, Math.max(dragStartScreen.x, dragCurrentScreen.x)));
-            int sy2 = Math.max(bounds.y, Math.min(bounds.y + bounds.height, Math.max(dragStartScreen.y, dragCurrentScreen.y)));
+        if (cropDragging && cropDragStartScreen != null && cropDragCurrentScreen != null) {
+            int sx1 = Math.max(bounds.x, Math.min(bounds.x + bounds.width, Math.min(cropDragStartScreen.x, cropDragCurrentScreen.x)));
+            int sy1 = Math.max(bounds.y, Math.min(bounds.y + bounds.height, Math.min(cropDragStartScreen.y, cropDragCurrentScreen.y)));
+            int sx2 = Math.max(bounds.x, Math.min(bounds.x + bounds.width, Math.max(cropDragStartScreen.x, cropDragCurrentScreen.x)));
+            int sy2 = Math.max(bounds.y, Math.min(bounds.y + bounds.height, Math.max(cropDragStartScreen.y, cropDragCurrentScreen.y)));
             if (sx2 > sx1 && sy2 > sy1) {
                 return new Rectangle(sx1, sy1, sx2 - sx1, sy2 - sy1);
             }
@@ -346,16 +559,16 @@ public class CanvasPanel extends JPanel {
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        BufferedImage displayImage = getImage();
-
-        if (displayImage == null) {
+        boolean hasDocLayers = document != null && document.hasImage();
+        if (!hasDocLayers && image == null) {
             drawEmptyState(g2d);
             g2d.dispose();
             return;
         }
 
-        DisplayBounds bounds = calculateDisplayBounds(displayImage);
+        DisplayBounds bounds = calculateCurrentDisplayBounds();
         if (bounds == null) {
+            drawEmptyState(g2d);
             g2d.dispose();
             return;
         }
@@ -367,10 +580,40 @@ public class CanvasPanel extends JPanel {
         g2d.setColor(new Color(0, 0, 0, 80));
         g2d.fillRoundRect(bounds.x + 3, bounds.y + 4, bounds.width, bounds.height, 4, 4);
 
-        // Draw composite image
-        g2d.drawImage(displayImage, bounds.x, bounds.y, bounds.width, bounds.height, this);
+        if (hasDocLayers) {
+            // Subtle dark checkerboard background so moved/transparent areas are clearly visible
+            drawTransparencyCheckerboard(g2d, bounds.x, bounds.y, bounds.width, bounds.height);
 
-        // Subtle outline border
+            // Render each layer directly at its own (x, y) document coordinates
+            Graphics2D canvasG = (Graphics2D) g2d.create();
+            try {
+                canvasG.clipRect(bounds.x, bounds.y, bounds.width, bounds.height);
+                canvasG.translate(bounds.x, bounds.y);
+                double scaleX = (double) bounds.width / bounds.imageWidth;
+                double scaleY = (double) bounds.height / bounds.imageHeight;
+                canvasG.scale(scaleX, scaleY);
+
+                for (Layer layer : document.getLayers()) {
+                    if (!layer.isVisible() || layer.getOpacity() <= 0.0f || layer.getImage() == null) {
+                        continue;
+                    }
+                    float alpha = Math.max(0.0f, Math.min(1.0f, layer.getOpacity()));
+                    canvasG.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+                    canvasG.drawImage(layer.getImage(), layer.getX(), layer.getY(), null);
+                }
+            } finally {
+                canvasG.dispose();
+            }
+
+            // Visual guide around the layer actively being dragged
+            if (layerDragging && draggingLayer != null && draggingLayer.getImage() != null) {
+                drawDraggedLayerOutline(g2d, bounds, draggingLayer);
+            }
+        } else {
+            g2d.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, this);
+        }
+
+        // Subtle outline border around document canvas
         g2d.setColor(new Color(255, 255, 255, 35));
         g2d.drawRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
@@ -380,6 +623,48 @@ public class CanvasPanel extends JPanel {
         }
 
         g2d.dispose();
+    }
+
+    private void drawTransparencyCheckerboard(Graphics2D g2d, int x, int y, int width, int height) {
+        int tileSize = 10;
+        Color light = new Color(46, 48, 54);
+        Color dark = new Color(36, 38, 43);
+
+        Graphics2D clipG = (Graphics2D) g2d.create();
+        try {
+            clipG.clipRect(x, y, width, height);
+            clipG.setColor(dark);
+            clipG.fillRect(x, y, width, height);
+            clipG.setColor(light);
+            for (int row = 0; row * tileSize < height; row++) {
+                for (int col = (row % 2); col * tileSize < width; col += 2) {
+                    clipG.fillRect(x + col * tileSize, y + row * tileSize, tileSize, tileSize);
+                }
+            }
+        } finally {
+            clipG.dispose();
+        }
+    }
+
+    private void drawDraggedLayerOutline(Graphics2D g2d, DisplayBounds bounds, Layer layer) {
+        double scaleX = (double) bounds.width / bounds.imageWidth;
+        double scaleY = (double) bounds.height / bounds.imageHeight;
+        int sx = bounds.x + (int) Math.round(layer.getX() * scaleX);
+        int sy = bounds.y + (int) Math.round(layer.getY() * scaleY);
+        int sw = Math.max(1, (int) Math.round(layer.getWidth() * scaleX));
+        int sh = Math.max(1, (int) Math.round(layer.getHeight() * scaleY));
+
+        Stroke dashed = new BasicStroke(
+                1.5f,
+                BasicStroke.CAP_BUTT,
+                BasicStroke.JOIN_MITER,
+                10.0f,
+                new float[]{5.0f, 3.0f},
+                0.0f
+        );
+        g2d.setStroke(dashed);
+        g2d.setColor(new Color(82, 130, 255, 220));
+        g2d.drawRect(sx, sy, sw, sh);
     }
 
     private void drawCropOverlay(Graphics2D g2d, DisplayBounds bounds) {

@@ -190,7 +190,7 @@ public class ImageDocument {
                 }
                 float alpha = Math.max(0.0f, Math.min(1.0f, layer.getOpacity()));
                 g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
-                g2d.drawImage(layer.getImage(), 0, 0, null);
+                g2d.drawImage(layer.getImage(), layer.getX(), layer.getY(), null);
             }
         } finally {
             g2d.dispose();

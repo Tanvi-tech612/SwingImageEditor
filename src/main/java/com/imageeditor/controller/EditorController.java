@@ -7,11 +7,14 @@ import com.imageeditor.command.CommandHistory;
 import com.imageeditor.command.CropDocumentCommand;
 import com.imageeditor.command.DeleteLayerCommand;
 import com.imageeditor.command.ImageOperationCommand;
+import com.imageeditor.command.LayerResizeCommand;
+import com.imageeditor.command.MoveLayerCommand;
 import com.imageeditor.command.ReorderLayerCommand;
 import com.imageeditor.command.ToggleVisibilityCommand;
 import com.imageeditor.model.ImageDocument;
 import com.imageeditor.model.Layer;
 import com.imageeditor.operations.ImageOperation;
+import com.imageeditor.operations.ResizeOperation;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -119,7 +122,14 @@ public class EditorController {
         if (image == null) {
             throw new IOException("Unsupported image format.");
         }
+        int startX = 0;
+        int startY = 0;
+        if (document.hasImage()) {
+            startX = (document.getCanvasWidth() - image.getWidth()) / 2;
+            startY = (document.getCanvasHeight() - image.getHeight()) / 2;
+        }
         Layer newLayer = new Layer(file.getName(), image);
+        newLayer.setPosition(startX, startY);
         executeCommand(new AddLayerCommand(document, newLayer));
         return newLayer;
     }
@@ -189,6 +199,32 @@ public class EditorController {
         }
     }
 
+    public void previewLayerPosition(Layer layer, int x, int y) {
+        if (layer != null) {
+            layer.setPosition(x, y);
+            notifyChange();
+        }
+    }
+
+    public void moveLayerPosition(Layer layer, int originalX, int originalY, int newX, int newY) {
+        if (layer == null) {
+            throw new IllegalArgumentException("Layer cannot be null.");
+        }
+        if (originalX == newX && originalY == newY) {
+            return;
+        }
+        layer.setPosition(originalX, originalY);
+        executeCommand(new MoveLayerCommand(layer, originalX, originalY, newX, newY));
+    }
+
+    public void moveSelectedLayer(int newX, int newY) {
+        Layer selected = document.getSelectedLayer();
+        if (selected == null) {
+            throw new IllegalStateException("Please select a layer first.");
+        }
+        moveLayerPosition(selected, selected.getX(), selected.getY(), newX, newY);
+    }
+
     public void applyOperation(ImageOperation operation) {
         if (!document.hasImage()) {
             throw new IllegalStateException("Please open an image first.");
@@ -232,6 +268,22 @@ public class EditorController {
         }
 
         CropDocumentCommand command = new CropDocumentCommand(document, cropArea);
+        executeCommand(command);
+    }
+
+    public void resizeSelectedLayer(int newWidth, int newHeight) {
+        Layer targetLayer = document.getSelectedLayer();
+        if (targetLayer == null) {
+            throw new IllegalStateException("Please select a layer first.");
+        }
+
+        if (targetLayer.getImage() == null) {
+            throw new IllegalStateException("The selected layer has no image to resize.");
+        }
+
+        ResizeOperation.validateDimensions(newWidth, newHeight);
+
+        LayerResizeCommand command = new LayerResizeCommand(targetLayer, newWidth, newHeight);
         executeCommand(command);
     }
 
