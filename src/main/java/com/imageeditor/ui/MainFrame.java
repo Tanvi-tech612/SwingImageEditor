@@ -27,12 +27,15 @@ public class MainFrame extends JFrame {
     private final JLabel infoLabel;
     private final JButton undoButton;
     private final JButton redoButton;
+    private final JButton cropButton;
+    private final JButton applyCropButton;
+    private final JButton cancelCropButton;
     private String currentFileName;
 
     public MainFrame() {
 
         setTitle("Swing Image Editor");
-        setSize(1050, 720);
+        setSize(1140, 720);
         setMinimumSize(new Dimension(850, 550));
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -43,6 +46,7 @@ public class MainFrame extends JFrame {
 
         canvasPanel = new CanvasPanel();
         canvasPanel.setDocument(controller.getDocument());
+        canvasPanel.setCropSelectionListener(this::onCropSelectionChanged);
 
         layersPanel = new LayersPanel(controller);
 
@@ -53,7 +57,7 @@ public class MainFrame extends JFrame {
         setupMenuBar();
 
         // Toolbar
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 8));
         toolbar.setBackground(new Color(40, 42, 46));
         toolbar.setBorder(new CompoundBorder(
                 new MatteBorder(0, 0, 1, 0, new Color(55, 58, 62)),
@@ -66,8 +70,13 @@ public class MainFrame extends JFrame {
         JButton invertButton = new JButton("Invert");
         JButton brightnessButton = new JButton("Brightness");
         JButton rotateButton = new JButton("Rotate");
+        cropButton = new JButton("Crop");
+        applyCropButton = new JButton("Apply Crop");
+        cancelCropButton = new JButton("Cancel Crop");
         undoButton = new JButton("Undo");
         redoButton = new JButton("Redo");
+        applyCropButton.setEnabled(false);
+        cancelCropButton.setEnabled(false);
         undoButton.setEnabled(false);
         redoButton.setEnabled(false);
 
@@ -77,6 +86,9 @@ public class MainFrame extends JFrame {
         invertButton.setToolTipText("Invert image colors");
         brightnessButton.setToolTipText("Adjust image brightness level (-255 to 255)");
         rotateButton.setToolTipText("Rotate image 90 degrees clockwise");
+        cropButton.setToolTipText("Select a rectangular region to crop the document");
+        applyCropButton.setToolTipText("Apply the current crop selection to all layers");
+        cancelCropButton.setToolTipText("Cancel crop selection mode without modifying the image");
         undoButton.setToolTipText("Undo last action (Ctrl+Z)");
         redoButton.setToolTipText("Redo last undone action (Ctrl+Y)");
 
@@ -86,28 +98,27 @@ public class MainFrame extends JFrame {
         styleButton(invertButton, false);
         styleButton(brightnessButton, false);
         styleButton(rotateButton, false);
+        styleButton(cropButton, false);
+        styleButton(applyCropButton, false);
+        styleButton(cancelCropButton, false);
         styleButton(undoButton, false);
         styleButton(redoButton, false);
 
         toolbar.add(openButton);
         toolbar.add(saveButton);
-
-        JPanel separator = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                g.setColor(new Color(75, 78, 86));
-                g.drawLine(getWidth() / 2, 2, getWidth() / 2, getHeight() - 3);
-            }
-        };
-        separator.setOpaque(false);
-        separator.setPreferredSize(new Dimension(12, 26));
-        toolbar.add(separator);
+        toolbar.add(createToolbarSeparator());
 
         toolbar.add(grayscaleButton);
         toolbar.add(invertButton);
         toolbar.add(brightnessButton);
         toolbar.add(rotateButton);
+        toolbar.add(createToolbarSeparator());
+
+        toolbar.add(cropButton);
+        toolbar.add(applyCropButton);
+        toolbar.add(cancelCropButton);
+        toolbar.add(createToolbarSeparator());
+
         toolbar.add(undoButton);
         toolbar.add(redoButton);
 
@@ -139,8 +150,8 @@ public class MainFrame extends JFrame {
         openButton.addActionListener(e -> openImage());
         saveButton.addActionListener(e -> saveImage());
 
-        undoButton.addActionListener(e -> controller.undo());
-        redoButton.addActionListener(e -> controller.redo());
+        undoButton.addActionListener(e -> performUndo());
+        redoButton.addActionListener(e -> performRedo());
 
         grayscaleButton.addActionListener(e ->
                 applyOperation(new GrayscaleOperation(), "Grayscale")
@@ -157,6 +168,24 @@ public class MainFrame extends JFrame {
         rotateButton.addActionListener(e ->
                 applyOperation(new RotateOperation(), "Rotate")
         );
+
+        cropButton.addActionListener(e -> enterCropMode());
+        applyCropButton.addActionListener(e -> applyCrop());
+        cancelCropButton.addActionListener(e -> cancelCrop());
+    }
+
+    private JPanel createToolbarSeparator() {
+        JPanel separator = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                g.setColor(new Color(75, 78, 86));
+                g.drawLine(getWidth() / 2, 2, getWidth() / 2, getHeight() - 3);
+            }
+        };
+        separator.setOpaque(false);
+        separator.setPreferredSize(new Dimension(10, 26));
+        return separator;
     }
 
     private void styleButton(JButton button, boolean isPrimary) {
@@ -191,11 +220,11 @@ public class MainFrame extends JFrame {
         JMenu editMenu = new JMenu("Edit");
         JMenuItem undoItem = new JMenuItem("Undo");
         undoItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        undoItem.addActionListener(e -> controller.undo());
+        undoItem.addActionListener(e -> performUndo());
 
         JMenuItem redoItem = new JMenuItem("Redo");
         redoItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        redoItem.addActionListener(e -> controller.redo());
+        redoItem.addActionListener(e -> performRedo());
 
         editMenu.add(undoItem);
         editMenu.add(redoItem);
@@ -214,10 +243,15 @@ public class MainFrame extends JFrame {
         JMenuItem rotateItem = new JMenuItem("Rotate 90° Clockwise");
         rotateItem.addActionListener(e -> applyOperation(new RotateOperation(), "Rotate"));
 
+        JMenuItem cropItem = new JMenuItem("Crop");
+        cropItem.addActionListener(e -> enterCropMode());
+
         operationsMenu.add(grayItem);
         operationsMenu.add(invertItem);
         operationsMenu.add(brightItem);
         operationsMenu.add(rotateItem);
+        operationsMenu.addSeparator();
+        operationsMenu.add(cropItem);
 
         menuBar.add(fileMenu);
         menuBar.add(editMenu);
@@ -246,6 +280,7 @@ public class MainFrame extends JFrame {
             File selectedFile = fileChooser.getSelectedFile();
 
             try {
+                exitCropMode(false);
                 controller.loadImage(selectedFile);
                 currentFileName = selectedFile.getName();
 
@@ -376,6 +411,9 @@ public class MainFrame extends JFrame {
     private void applyOperation(com.imageeditor.operations.ImageOperation operation, String opName) {
 
         try {
+            if (canvasPanel.isCropMode()) {
+                exitCropMode(false);
+            }
             controller.applyOperation(operation);
             statusLabel.setText("Applied: " + opName);
             updateCanvas();
@@ -388,6 +426,108 @@ public class MainFrame extends JFrame {
                     "No Image",
                     JOptionPane.WARNING_MESSAGE
             );
+        }
+    }
+
+    private void enterCropMode() {
+        if (!controller.getDocument().hasImage()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please open an image first.",
+                    "No Image",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        canvasPanel.setCropMode(true);
+        cropButton.setEnabled(false);
+        applyCropButton.setEnabled(true);
+        cancelCropButton.setEnabled(true);
+        statusLabel.setText("Crop mode: click and drag on the image to select an area");
+    }
+
+    private void applyCrop() {
+        if (!controller.getDocument().hasImage()) {
+            exitCropMode(false);
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please open an image first.",
+                    "No Image",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        Rectangle cropArea = canvasPanel.getCropAreaInImageCoordinates();
+        if (cropArea == null || cropArea.width <= 0 || cropArea.height <= 0) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please select a valid crop area by clicking and dragging over the image.",
+                    "No Crop Selection",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        try {
+            controller.cropDocument(cropArea);
+            exitCropMode(false);
+            statusLabel.setText("Applied: Crop (" + cropArea.width + " × " + cropArea.height + " px)");
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    ex.getMessage(),
+                    "Invalid Crop Area",
+                    JOptionPane.WARNING_MESSAGE
+            );
+        }
+    }
+
+    private void cancelCrop() {
+        exitCropMode(true);
+    }
+
+    private void exitCropMode(boolean updateStatus) {
+        boolean wasCropMode = canvasPanel.isCropMode();
+        canvasPanel.setCropMode(false);
+        cropButton.setEnabled(true);
+        applyCropButton.setEnabled(false);
+        cancelCropButton.setEnabled(false);
+        if (updateStatus && wasCropMode) {
+            statusLabel.setText("Crop cancelled");
+        }
+    }
+
+    private void onCropSelectionChanged(Rectangle selection) {
+        if (!canvasPanel.isCropMode()) {
+            return;
+        }
+        if (selection != null && selection.width > 0 && selection.height > 0) {
+            statusLabel.setText("Crop selection: " + selection.width + " × " + selection.height
+                    + " px at (" + selection.x + ", " + selection.y + ") — click Apply Crop or Cancel Crop");
+        } else {
+            statusLabel.setText("Crop mode: click and drag on the image to select an area");
+        }
+    }
+
+    private void performUndo() {
+        if (canvasPanel.isCropMode()) {
+            exitCropMode(false);
+        }
+        if (controller.canUndo()) {
+            controller.undo();
+            statusLabel.setText("Undid last action");
+        }
+    }
+
+    private void performRedo() {
+        if (canvasPanel.isCropMode()) {
+            exitCropMode(false);
+        }
+        if (controller.canRedo()) {
+            controller.redo();
+            statusLabel.setText("Redid last action");
         }
     }
 
@@ -449,6 +589,9 @@ public class MainFrame extends JFrame {
             int layerCount = controller.getDocument().getLayerCount();
             infoLabel.setText(composite.getWidth() + " × " + composite.getHeight() + " px (" + layerCount + " layer" + (layerCount == 1 ? "" : "s") + ")");
         } else {
+            if (canvasPanel.isCropMode()) {
+                exitCropMode(false);
+            }
             infoLabel.setText("No image loaded");
         }
     }

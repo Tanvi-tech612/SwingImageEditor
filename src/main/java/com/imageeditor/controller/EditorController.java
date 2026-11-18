@@ -4,6 +4,7 @@ import com.imageeditor.command.AddLayerCommand;
 import com.imageeditor.command.ChangeOpacityCommand;
 import com.imageeditor.command.Command;
 import com.imageeditor.command.CommandHistory;
+import com.imageeditor.command.CropDocumentCommand;
 import com.imageeditor.command.DeleteLayerCommand;
 import com.imageeditor.command.ImageOperationCommand;
 import com.imageeditor.command.ReorderLayerCommand;
@@ -15,6 +16,7 @@ import com.imageeditor.operations.ImageOperation;
 import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -201,6 +203,35 @@ public class EditorController {
         }
 
         ImageOperationCommand command = new ImageOperationCommand(document, targetLayer, operation);
+        executeCommand(command);
+    }
+
+    public void cropDocument(Rectangle cropArea) {
+        if (!document.hasImage()) {
+            throw new IllegalStateException("Please open an image first.");
+        }
+
+        int canvasWidth = document.getCanvasWidth();
+        int canvasHeight = document.getCanvasHeight();
+        if (canvasWidth <= 0 || canvasHeight <= 0) {
+            throw new IllegalStateException("Document has no valid image dimensions.");
+        }
+
+        if (cropArea == null) {
+            throw new IllegalArgumentException("Please select a crop area first.");
+        }
+
+        if (cropArea.width <= 0 || cropArea.height <= 0) {
+            throw new IllegalArgumentException("Crop selection must have positive width and height.");
+        }
+
+        if (cropArea.x < 0 || cropArea.y < 0
+                || (long) cropArea.x + cropArea.width > canvasWidth
+                || (long) cropArea.y + cropArea.height > canvasHeight) {
+            throw new IllegalArgumentException("Crop selection extends outside the document boundaries.");
+        }
+
+        CropDocumentCommand command = new CropDocumentCommand(document, cropArea);
         executeCommand(command);
     }
 
